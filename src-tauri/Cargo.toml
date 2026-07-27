@@ -1,0 +1,21 @@
+[package]
+name = "mb2-mod-launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Mount & Blade II Bannerlord mod manager for Linux"
+
+[lib]
+name = "mb2_mod_launcher_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+mb2-core = { path = "../crates/mb2-core" }
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tracing.workspace = true
