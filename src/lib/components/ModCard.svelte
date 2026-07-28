@@ -12,10 +12,6 @@
     dragOver = false,
     ontoggle,
     onexpand,
-    ondragstart,
-    ondragover,
-    ondragleave,
-    ondrop,
   }: {
     module: ModuleState;
     index: number;
@@ -24,14 +20,17 @@
     dragOver?: boolean;
     ontoggle?: () => void;
     onexpand?: () => void;
-    ondragstart?: () => void;
-    ondragover?: (e: DragEvent) => void;
-    ondragleave?: () => void;
-    ondrop?: () => void;
   } = $props();
 
-  const isOfficial = $derived(OFFICIAL_MODULE_IDS.has(module.module.info.id));
+  const moduleId = $derived(module.module.info.id);
+  const isOfficial = $derived(OFFICIAL_MODULE_IDS.has(moduleId));
   const hasDeps = $derived(module.module.info.depended_modules.length > 0);
+  const isWorkshop = $derived(module.module.source === "workshop");
+  const depSummary = $derived(
+    hasDeps
+      ? module.module.info.depended_modules.map((d) => d.id).join(", ")
+      : "",
+  );
 </script>
 
 <article
@@ -41,22 +40,20 @@
   class:dragging
   class:drag-over={dragOver}
   class:official={isOfficial}
+  class:workshop={isWorkshop}
+  data-module-id={moduleId}
   draggable="true"
   role="listitem"
-  ondragstart={ondragstart}
-  ondragover={ondragover}
-  ondragleave={ondragleave}
-  ondrop={ondrop}
 >
-  <span class="rank">{index + 1}</span>
+  <span class="rank" aria-label="Rank {index + 1}">
+    <span class="rank-num">{index + 1}</span>
+  </span>
 
   <button class="roster-main" type="button" onclick={onexpand} aria-expanded={expanded}>
     <span class="name">{module.module.info.name}</span>
-    <span class="id">{module.module.info.id}</span>
+    <span class="id">{moduleId}</span>
     {#if hasDeps && !expanded}
-      <span class="dep-line">
-        Requires: {module.module.info.depended_modules.map((d) => d.id).join(", ")}
-      </span>
+      <span class="dep-line">Requires: {depSummary}</span>
     {/if}
   </button>
 
@@ -69,7 +66,7 @@
   <span class="version">{module.module.info.version ?? "—"}</span>
   <SourceBadge source={module.module.source} />
 
-  <span class="drag-handle" aria-hidden="true" title="Drag to reorder">☰</span>
+  <span class="drag-handle" aria-hidden="true" title="Drag to reorder">⠿</span>
   <Toggle checked={module.enabled} onchange={ontoggle} />
 
   {#if expanded && hasDeps}
@@ -77,7 +74,7 @@
       <span class="dep-label">Allied modules required</span>
       <div class="dep-chips">
         {#each module.module.info.depended_modules as dep}
-          <span class="dep-chip">{dep.id}</span>
+          <span class="dep-chip" class:optional={dep.optional}>{dep.id}</span>
         {/each}
       </div>
     </div>
@@ -87,15 +84,22 @@
 <style>
   .roster-row {
     display: grid;
-    grid-template-columns: 2.25rem 1fr 3.5rem auto auto 1.25rem 2.5rem;
+    grid-template-columns: var(--roster-grid-columns);
     grid-template-rows: auto auto;
     gap: 0 0.6rem;
     align-items: center;
-    padding: 0.5rem 0.75rem;
+    padding: 0.52rem 0.75rem;
     border-bottom: 1px solid var(--border-subtle);
     background: var(--bg-panel);
     border-left: 3px solid transparent;
-    contain: layout style;
+    contain: layout style paint;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 54px;
+  }
+
+  .roster-row:not(.expanded) {
+    min-height: var(--mod-row-height);
+    max-height: var(--mod-row-height);
   }
 
   .roster-row:last-child {
@@ -106,8 +110,15 @@
     background: #211c17;
   }
 
-  .roster-row:hover {
-    background: var(--bg-hover);
+  @media (hover: hover) {
+    .roster-row:hover {
+      background: var(--bg-hover);
+    }
+
+    .roster-row:hover .drag-handle {
+      opacity: 1;
+      color: var(--gold-dim);
+    }
   }
 
   .roster-row:not(.disabled) {
@@ -116,6 +127,10 @@
 
   .roster-row.official:not(.disabled) {
     border-left-color: var(--gold);
+  }
+
+  .roster-row.workshop:not(.disabled) {
+    border-left-color: #4a7a72;
   }
 
   .roster-row.disabled {
@@ -133,12 +148,8 @@
     color: #6e6458;
   }
 
-  .roster-row.disabled:hover {
-    background: #201b16;
-  }
-
   .roster-row.dragging {
-    opacity: 0.55;
+    opacity: 0.5;
   }
 
   .roster-row.drag-over {
@@ -147,15 +158,35 @@
   }
 
   .rank {
-    font-family: var(--font-display);
-    font-size: 0.85rem;
-    font-weight: 700;
-    color: var(--gold);
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: visible;
+    min-width: 3rem;
   }
 
-  .roster-row.disabled .rank {
+  .rank-num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.65rem;
+    height: 1.5rem;
+    padding: 0 0.2rem;
+    font-family: var(--font-display);
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--gold);
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .roster-row.disabled .rank-num {
     color: var(--text-muted);
+    border-color: transparent;
+    background: rgba(0, 0, 0, 0.18);
   }
 
   .roster-main {
@@ -169,10 +200,17 @@
     display: flex;
     flex-direction: column;
     gap: 0.08rem;
+    box-shadow: none;
   }
 
   .roster-main:hover {
     background: transparent;
+  }
+
+  .roster-main:focus-visible {
+    outline: 2px solid var(--gold-dim);
+    outline-offset: 2px;
+    border-radius: 2px;
   }
 
   .name {
@@ -209,7 +247,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    padding: 0.12rem 0.3rem;
+    padding: 0.14rem 0.32rem;
     text-align: center;
     border-radius: 2px;
     background: #3a3020;
@@ -225,14 +263,17 @@
     font-size: 0.68rem;
     color: var(--text-muted);
     white-space: nowrap;
+    font-family: var(--font-mono);
   }
 
   .drag-handle {
     color: var(--text-muted);
-    font-size: 0.8rem;
+    font-size: 0.95rem;
     cursor: grab;
     user-select: none;
     text-align: center;
+    line-height: 1;
+    opacity: 0.55;
   }
 
   .dep-detail {
@@ -262,10 +303,15 @@
 
   .dep-chip {
     font-size: 0.68rem;
-    padding: 0.12rem 0.4rem;
+    padding: 0.14rem 0.45rem;
     border-radius: 2px;
     background: var(--bg-base);
     border: 1px solid var(--border-default);
     color: var(--parchment-dim);
+  }
+
+  .dep-chip.optional {
+    border-style: dashed;
+    color: var(--text-muted);
   }
 </style>

@@ -6,7 +6,12 @@
   );
 </script>
 
-<span class="badge" class:workshop={source === "workshop"} class:game={source === "game"} class:manual={source === "manual"}>
+<span
+  class="badge"
+  class:workshop={source === "workshop"}
+  class:game={source === "game"}
+  class:manual={source === "manual"}
+>
   {label}
 </span>
 
@@ -14,7 +19,9 @@
   .badge {
     display: inline-flex;
     align-items: center;
-    padding: 0.15rem 0.45rem;
+    justify-content: center;
+    min-width: 4.5rem;
+    padding: 0.18rem 0.4rem;
     border-radius: 2px;
     font-family: var(--font-display);
     font-size: 0.58rem;
@@ -22,6 +29,7 @@
     letter-spacing: 0.04em;
     text-transform: uppercase;
     border: 1px solid var(--border-default);
+    white-space: nowrap;
   }
 
   .badge.game {

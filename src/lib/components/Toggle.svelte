@@ -26,12 +26,13 @@
 <style>
   .toggle {
     position: relative;
-    width: 2.25rem;
-    height: 1.25rem;
+    width: 2.35rem;
+    height: 1.3rem;
     padding: 0;
     border-radius: 999px;
-    background: var(--bg-base);
+    background: rgba(0, 0, 0, 0.35);
     border: 1px solid var(--border-default);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
   }
 
   .toggle.on {
@@ -43,17 +44,22 @@
     opacity: 0.35;
   }
 
+  .toggle:focus-visible {
+    outline: 2px solid var(--gold-dim);
+    outline-offset: 2px;
+  }
+
   .thumb {
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 0.9rem;
-    height: 0.9rem;
+    width: calc(1.3rem - 6px);
+    height: calc(1.3rem - 6px);
     border-radius: 50%;
     background: var(--parchment);
   }
 
   .toggle.on .thumb {
-    transform: translateX(1rem);
+    transform: translateX(1.05rem);
   }
 </style>

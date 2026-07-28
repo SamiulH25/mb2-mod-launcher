@@ -1,7 +1,8 @@
 use crate::AppContext;
 use mb2_core::{
-    auto_sort, default_cache_path, load_app_state, save_load_order as persist_load_order,
-    unblock_module_dlls, GamePaths, LoadOrderEntry, MetadataCache,
+    auto_sort, default_cache_path, launch_via_steam, load_app_state,
+    save_load_order as persist_load_order, unblock_module_dlls, GamePaths, LoadOrderEntry,
+    MetadataCache,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -60,6 +61,26 @@ pub fn toggle_module(
         .ok_or_else(|| "No module state loaded.".to_string())?;
 
     if let Some(module) = state.modules.iter_mut().find(|m| m.module.info.id == module_id) {
+        module.enabled = enabled;
+    }
+
+    *ctx.state.lock().unwrap() = Some(state.clone());
+    Ok(state)
+}
+
+#[tauri::command]
+pub fn set_all_modules_enabled(
+    ctx: State<'_, AppContext>,
+    enabled: bool,
+) -> Result<mb2_core::AppState, String> {
+    let mut state = ctx
+        .state
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "No module state loaded.".to_string())?;
+
+    for module in &mut state.modules {
         module.enabled = enabled;
     }
 
@@ -179,6 +200,35 @@ pub fn unblock_dlls(ctx: State<'_, AppContext>) -> Result<Vec<mb2_core::UnblockR
     }
 
     Ok(results)
+}
+
+#[tauri::command]
+pub fn launch_game(ctx: State<'_, AppContext>) -> Result<(), String> {
+    let paths = ctx
+        .paths
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "Game not configured.".to_string())?;
+
+    let state = ctx
+        .state
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "No module state loaded.".to_string())?;
+
+    let entries: Vec<LoadOrderEntry> = state
+        .modules
+        .iter()
+        .map(|m| LoadOrderEntry {
+            module_id: m.module.info.id.clone(),
+            enabled: m.enabled,
+        })
+        .collect();
+
+    persist_load_order(&paths, &entries).map_err(|e| e.to_string())?;
+    launch_via_steam().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -10,7 +10,7 @@
   let open = $state(false);
 </script>
 
-<div class="accordion panel">
+<div class="accordion">
   <button class="accordion-trigger" type="button" onclick={() => (open = !open)} aria-expanded={open}>
     <svg
       width="14"
@@ -28,7 +28,7 @@
         stroke-linejoin="round"
       />
     </svg>
-    <span>Camp paths</span>
+    <span class="trigger-label">Camp paths</span>
     {#if !open}
       <span class="path-preview">{gamePath.split("/").pop() ?? gamePath}</span>
     {/if}
@@ -51,6 +51,9 @@
 <style>
   .accordion {
     overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: rgba(0, 0, 0, 0.18);
   }
 
   .accordion-trigger {
@@ -58,13 +61,23 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.65rem 0.85rem;
+    padding: 0.55rem 0.7rem;
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     font-weight: 500;
     text-align: left;
+    box-shadow: none;
+  }
+
+  .trigger-label {
+    font-family: var(--font-display);
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
   }
 
   .accordion-trigger:hover {
@@ -74,6 +87,7 @@
   .accordion-trigger svg {
     transition: transform 0.2s ease;
     flex-shrink: 0;
+    color: var(--gold-dim);
   }
 
   .accordion-trigger svg.rotated {
@@ -83,19 +97,20 @@
   .path-preview {
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 55%;
+    max-width: 50%;
   }
 
   .accordion-body {
-    padding: 0 0.85rem 0.75rem;
+    padding: 0 0.7rem 0.65rem;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.45rem;
+    border-top: 1px solid var(--border-subtle);
     animation: fade-in 0.15s ease;
   }
 
@@ -111,24 +126,27 @@
   .path-row {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 0.22rem;
+    padding-top: 0.45rem;
   }
 
   .path-key {
-    font-size: 0.65rem;
+    font-family: var(--font-display);
+    font-size: 0.58rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    color: var(--gold);
   }
 
   .path-val {
-    font-size: 0.7rem;
+    font-size: 0.68rem;
     word-break: break-all;
     line-height: 1.4;
-    padding: 0.4rem 0.5rem;
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: 4px;
+    padding: 0.38rem 0.48rem;
+    background: rgba(0, 0, 0, 0.28);
+    border-radius: 3px;
     border: 1px solid var(--border-subtle);
+    display: block;
   }
 </style>

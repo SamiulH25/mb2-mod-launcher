@@ -23,9 +23,11 @@ pub fn run() {
             commands::set_game_path,
             commands::refresh_modules,
             commands::toggle_module,
+            commands::set_all_modules_enabled,
             commands::reorder_modules,
             commands::auto_sort_modules,
             commands::save_load_order,
+            commands::launch_game,
             commands::unblock_dlls,
             commands::search_cached_mods,
         ])

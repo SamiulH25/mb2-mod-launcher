@@ -1,11 +1,20 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import type { AppState, ModuleState } from "./lib/types";
+  import { scheduleStatusDismiss, cancelStatusDismiss } from "./lib/status";
+  import {
+    getVisibleRange,
+    MOD_ROW_HEIGHT,
+    VISIBLE_ROW_COUNT,
+    VIRTUAL_LIST_THRESHOLD,
+  } from "./lib/virtual-scroll";
   import CoatOfArms from "./lib/components/CoatOfArms.svelte";
   import CalradiaBanner from "./lib/components/CalradiaBanner.svelte";
   import ModCard from "./lib/components/ModCard.svelte";
   import LoadOrderTimeline from "./lib/components/LoadOrderTimeline.svelte";
   import QuickActionsPanel from "./lib/components/QuickActionsPanel.svelte";
+  import OrnamentDivider from "./lib/components/OrnamentDivider.svelte";
 
   let appState: AppState | null = $state(null);
   let loading = $state(false);
@@ -15,43 +24,123 @@
   let dragIndex: number | null = $state(null);
   let dragOverIndex: number | null = $state(null);
   let expandedId: string | null = $state(null);
+  let listScrollTop = $state(0);
+  let listViewportHeight = $state(MOD_ROW_HEIGHT * VISIBLE_ROW_COUNT);
+  let listBodyEl: HTMLDivElement | null = $state(null);
+  let scrollRaf: number | null = null;
 
-  const filteredModules = $derived(
-    appState
-      ? appState.modules.filter((m) => {
-          if (!searchQuery.trim()) return true;
-          const q = searchQuery.toLowerCase();
-          return (
-            m.module.info.name.toLowerCase().includes(q) ||
-            m.module.info.id.toLowerCase().includes(q)
-          );
-        })
-      : [],
+  const modules = $derived(appState?.modules ?? []);
+  const normalizedQuery = $derived(searchQuery.trim().toLowerCase());
+
+  const filteredModules = $derived.by(() => {
+    if (!normalizedQuery) {
+      return modules;
+    }
+    return modules.filter((m) => {
+      const info = m.module.info;
+      return (
+        info.name.toLowerCase().includes(normalizedQuery) ||
+        info.id.toLowerCase().includes(normalizedQuery)
+      );
+    });
+  });
+
+  const enabledCount = $derived(modules.filter((m) => m.enabled).length);
+  const totalCount = $derived(modules.length);
+
+  const enabledWaypoints = $derived.by(() => {
+    const waypoints: { id: string; name: string }[] = [];
+    for (const module of modules) {
+      if (module.enabled) {
+        waypoints.push({
+          id: module.module.info.id,
+          name: module.module.info.name,
+        });
+      }
+    }
+    return waypoints;
+  });
+
+  const useVirtualList = $derived(
+    filteredModules.length > VIRTUAL_LIST_THRESHOLD && expandedId === null,
   );
 
-  const enabledCount = $derived(
-    appState?.modules.filter((m) => m.enabled).length ?? 0,
+  const virtualWindow = $derived.by(() => {
+    if (!useVirtualList) {
+      return { start: 0, end: filteredModules.length, offsetY: 0 };
+    }
+    const { start, end } = getVisibleRange(
+      listScrollTop,
+      listViewportHeight,
+      filteredModules.length,
+      MOD_ROW_HEIGHT,
+    );
+    return { start, end, offsetY: start * MOD_ROW_HEIGHT };
+  });
+
+  const visibleModules = $derived(
+    useVirtualList
+      ? filteredModules.slice(virtualWindow.start, virtualWindow.end)
+      : filteredModules,
   );
 
-  const totalCount = $derived(appState?.modules.length ?? 0);
+  const moduleIndexById = $derived.by(() => {
+    const map = new Map<string, number>();
+    filteredModules.forEach((module, index) => {
+      map.set(module.module.info.id, index);
+    });
+    return map;
+  });
+
+  const listSpacerHeight = $derived(filteredModules.length * MOD_ROW_HEIGHT);
 
   $effect(() => {
-    if (!statusMessage) return;
-    const timer = setTimeout(() => {
-      statusMessage = null;
-    }, 3500);
-    return () => clearTimeout(timer);
+    if (!listBodyEl) return;
+
+    const updateViewport = () => {
+      listViewportHeight = listBodyEl?.clientHeight ?? listViewportHeight;
+    };
+
+    updateViewport();
+    const observer = new ResizeObserver(updateViewport);
+    observer.observe(listBodyEl);
+
+    return () => observer.disconnect();
   });
+
+  onMount(() => {
+    return () => {
+      if (scrollRaf !== null) {
+        cancelAnimationFrame(scrollRaf);
+      }
+      cancelStatusDismiss();
+    };
+  });
+
+  function showStatus(message: string) {
+    statusMessage = message;
+    scheduleStatusDismiss(() => {
+      statusMessage = null;
+    });
+  }
+
+  function showError(message: string) {
+    error = message;
+    scheduleStatusDismiss(() => {
+      error = null;
+    });
+  }
 
   async function detectGame() {
     loading = true;
     error = null;
     statusMessage = null;
+    cancelStatusDismiss();
     try {
       appState = await invoke<AppState>("detect_game");
-      statusMessage = `Found ${appState.modules.length} modules`;
+      showStatus(`Found ${appState.modules.length} modules`);
     } catch (e) {
-      error = String(e);
+      showError(String(e));
       appState = null;
     } finally {
       loading = false;
@@ -62,11 +151,12 @@
     if (!appState) return;
     loading = true;
     error = null;
+    cancelStatusDismiss();
     try {
       appState = await invoke<AppState>("refresh_modules");
-      statusMessage = "Modules refreshed";
+      showStatus("Modules refreshed");
     } catch (e) {
-      error = String(e);
+      showError(String(e));
     } finally {
       loading = false;
     }
@@ -80,7 +170,22 @@
         enabled: !module.enabled,
       });
     } catch (e) {
-      error = String(e);
+      showError(String(e));
+    }
+  }
+
+  async function enableAllModules() {
+    if (!appState) return;
+    loading = true;
+    error = null;
+    cancelStatusDismiss();
+    try {
+      appState = await invoke<AppState>("set_all_modules_enabled", { enabled: true });
+      showStatus(`Enlisted all ${appState.modules.length} modules`);
+    } catch (e) {
+      showError(String(e));
+    } finally {
+      loading = false;
     }
   }
 
@@ -88,11 +193,12 @@
     if (!appState) return;
     loading = true;
     error = null;
+    cancelStatusDismiss();
     try {
       appState = await invoke<AppState>("auto_sort_modules");
-      statusMessage = "Load order sorted";
+      showStatus("Load order sorted");
     } catch (e) {
-      error = String(e);
+      showError(String(e));
     } finally {
       loading = false;
     }
@@ -102,11 +208,27 @@
     if (!appState) return;
     loading = true;
     error = null;
+    cancelStatusDismiss();
     try {
       await invoke("save_load_order");
-      statusMessage = "Saved to LauncherData.xml";
+      showStatus("Saved to LauncherData.xml");
     } catch (e) {
-      error = String(e);
+      showError(String(e));
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function launchGame() {
+    if (!appState) return;
+    loading = true;
+    error = null;
+    cancelStatusDismiss();
+    try {
+      await invoke("launch_game");
+      showStatus("Saved load order and launching Bannerlord via Steam…");
+    } catch (e) {
+      showError(String(e));
     } finally {
       loading = false;
     }
@@ -116,48 +238,83 @@
     if (!appState) return;
     loading = true;
     error = null;
+    cancelStatusDismiss();
     try {
       const results = await invoke<Array<{ files_unblocked: number }>>("unblock_dlls");
       const total = results.reduce((sum, r) => sum + r.files_unblocked, 0);
-      statusMessage = `Unblocked ${total} DLL file(s)`;
+      showStatus(`Unblocked ${total} DLL file(s)`);
     } catch (e) {
-      error = String(e);
+      showError(String(e));
     } finally {
       loading = false;
     }
   }
 
-  function onDragStart(index: number) {
-    dragIndex = index;
+  function onListScroll(event: Event) {
+    const target = event.currentTarget as HTMLDivElement;
+    if (scrollRaf !== null) return;
+    scrollRaf = requestAnimationFrame(() => {
+      listScrollTop = target.scrollTop;
+      scrollRaf = null;
+    });
   }
 
-  function onDragOver(e: DragEvent, index: number) {
-    e.preventDefault();
-    if (dragOverIndex !== index) {
-      dragOverIndex = index;
+  function moduleIdFromEvent(event: Event): string | null {
+    const row = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-module-id]");
+    return row?.dataset.moduleId ?? null;
+  }
+
+  function onListDragStart(event: DragEvent) {
+    const moduleId = moduleIdFromEvent(event);
+    if (!moduleId) return;
+    dragIndex = moduleIndexById.get(moduleId) ?? null;
+  }
+
+  function onListDragOver(event: DragEvent) {
+    event.preventDefault();
+    const moduleId = moduleIdFromEvent(event);
+    if (!moduleId) return;
+    const index = moduleIndexById.get(moduleId);
+    if (index === undefined || dragOverIndex === index) return;
+    dragOverIndex = index;
+  }
+
+  function onListDragLeave(event: DragEvent) {
+    const related = event.relatedTarget as Node | null;
+    if (related && listBodyEl?.contains(related)) return;
+    dragOverIndex = null;
+  }
+
+  async function onListDrop(event: DragEvent) {
+    const targetModuleId = moduleIdFromEvent(event);
+    dragOverIndex = null;
+    if (!appState || dragIndex === null || !targetModuleId) {
+      dragIndex = null;
+      return;
     }
-  }
 
-  function onDragLeave() {
-    dragOverIndex = null;
-  }
-
-  async function onDrop(targetIndex: number) {
-    dragOverIndex = null;
-    if (!appState || dragIndex === null || dragIndex === targetIndex) {
+    const movedModule = filteredModules[dragIndex];
+    if (!movedModule || movedModule.module.info.id === targetModuleId) {
       dragIndex = null;
       return;
     }
 
     const ids = appState.modules.map((m) => m.module.info.id);
-    const [moved] = ids.splice(dragIndex, 1);
-    ids.splice(targetIndex, 0, moved);
+    const from = ids.indexOf(movedModule.module.info.id);
+    const to = ids.indexOf(targetModuleId);
     dragIndex = null;
+
+    if (from < 0 || to < 0 || from === to) {
+      return;
+    }
+
+    const [moved] = ids.splice(from, 1);
+    ids.splice(to, 0, moved);
 
     try {
       appState = await invoke<AppState>("reorder_modules", { moduleIds: ids });
     } catch (e) {
-      error = String(e);
+      showError(String(e));
     }
   }
 
@@ -166,6 +323,7 @@
   }
 
   function dismissStatus() {
+    cancelStatusDismiss();
     statusMessage = null;
     error = null;
   }
@@ -182,6 +340,7 @@
     hasGame={!!appState}
     onDetect={detectGame}
     onRefresh={refreshModules}
+    onLaunch={launchGame}
   />
 
   <div class="main-column">
@@ -203,8 +362,20 @@
       <div class="workspace">
         <section class="roster-column">
           <div class="roster-head panel">
-            <h2>Module Roster</h2>
-            <span class="roster-hint">Click a row for details · drag to reorder</span>
+            <div class="roster-title-row">
+              <h2>Module Roster</h2>
+              <button
+                class="seal roster-enable-all"
+                type="button"
+                onclick={enableAllModules}
+                disabled={loading}
+              >
+                Enable All
+              </button>
+            </div>
+            <span class="roster-hint">
+              {filteredModules.length} modules · showing {VISIBLE_ROW_COUNT} at a time · drag to reorder
+            </span>
           </div>
 
           <div class="list-head panel">
@@ -217,24 +388,53 @@
             <span></span>
           </div>
 
-          <div class="list-body panel" role="list" aria-label="Installed modules">
-            {#each filteredModules as module, index (module.module.info.id)}
-              <ModCard
-                {module}
-                {index}
-                expanded={expandedId === module.module.info.id}
-                dragging={dragIndex === index}
-                dragOver={dragOverIndex === index}
-                ontoggle={() => toggleModule(module)}
-                onexpand={() => toggleExpand(module.module.info.id)}
-                ondragstart={() => onDragStart(index)}
-                ondragover={(e) => onDragOver(e, index)}
-                ondragleave={onDragLeave}
-                ondrop={() => onDrop(index)}
-              />
+          <div
+            class="list-body panel scroll-region"
+            role="list"
+            aria-label="Installed modules"
+            bind:this={listBodyEl}
+            onscroll={onListScroll}
+            ondragstart={onListDragStart}
+            ondragover={onListDragOver}
+            ondragleave={onListDragLeave}
+            ondrop={onListDrop}
+          >
+            {#if filteredModules.length === 0}
+              <div class="list-empty">
+                <span class="empty-mark" aria-hidden="true">⚑</span>
+                <p>No modules match your search.</p>
+              </div>
+            {:else if useVirtualList}
+              <div class="virtual-spacer" style:height="{listSpacerHeight}px">
+                <div class="virtual-window" style:transform="translateY({virtualWindow.offsetY}px)">
+                  {#each visibleModules as module (module.module.info.id)}
+                    {@const index = moduleIndexById.get(module.module.info.id) ?? 0}
+                    <ModCard
+                      {module}
+                      {index}
+                      expanded={false}
+                      dragging={dragIndex === index}
+                      dragOver={dragOverIndex === index}
+                      ontoggle={() => toggleModule(module)}
+                      onexpand={() => toggleExpand(module.module.info.id)}
+                    />
+                  {/each}
+                </div>
+              </div>
             {:else}
-              <p class="list-empty">No modules match your search.</p>
-            {/each}
+              {#each visibleModules as module (module.module.info.id)}
+                {@const index = moduleIndexById.get(module.module.info.id) ?? 0}
+                <ModCard
+                  {module}
+                  {index}
+                  expanded={expandedId === module.module.info.id}
+                  dragging={dragIndex === index}
+                  dragOver={dragOverIndex === index}
+                  ontoggle={() => toggleModule(module)}
+                  onexpand={() => toggleExpand(module.module.info.id)}
+                />
+              {/each}
+            {/if}
           </div>
         </section>
 
@@ -244,6 +444,7 @@
           configPath={appState.paths.launcher_data}
           {loading}
           warnings={appState.warnings}
+          onLaunch={launchGame}
           onAutoSort={autoSort}
           onUnblockDlls={unblockDlls}
           onSave={saveLoadOrder}
@@ -251,15 +452,30 @@
         />
       </div>
 
-      <LoadOrderTimeline modules={appState.modules} />
+      <LoadOrderTimeline waypoints={enabledWaypoints} />
     {:else}
-      <section class="welcome panel-inset">
-        <CoatOfArms size={72} />
+      <section class="welcome panel-inset panel-heraldic">
+        <CoatOfArms size={80} />
+        <OrnamentDivider label="Enlist" />
         <h2>Rally Your Mods</h2>
         <p>
           Detect your Steam install to muster modules from <code>SubModule.xml</code>,
           arrange your campaign load order, and deploy to <code>LauncherData.xml</code>.
         </p>
+        <ul class="welcome-features">
+          <li>
+            <span class="feat-icon" aria-hidden="true">⚔</span>
+            <span>Workshop &amp; game module scanning</span>
+          </li>
+          <li>
+            <span class="feat-icon" aria-hidden="true">⟳</span>
+            <span>Dependency-aware auto sort</span>
+          </li>
+          <li>
+            <span class="feat-icon" aria-hidden="true">⚿</span>
+            <span>Proton DLL unblocking</span>
+          </li>
+        </ul>
         <button class="seal seal-primary welcome-cta" onclick={detectGame} disabled={loading}>
           {loading ? "Scouting…" : "Detect Game"}
         </button>
@@ -291,21 +507,28 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
-    padding: 0.5rem 0.7rem;
+    padding: 0.55rem 0.75rem;
     border-radius: var(--radius-sm);
     font-size: 0.8125rem;
+    box-shadow: var(--shadow-panel);
   }
 
   .toast.error {
     background: var(--error-bg);
     border: 1px solid var(--error-border);
     color: var(--error-text);
+    box-shadow:
+      var(--shadow-panel),
+      inset 3px 0 0 var(--error-text);
   }
 
   .toast.success {
     background: var(--success-bg);
     border: 1px solid var(--success-border);
     color: var(--success-text);
+    box-shadow:
+      var(--shadow-panel),
+      inset 3px 0 0 var(--success-text);
   }
 
   .toast-x {
@@ -316,6 +539,7 @@
     line-height: 1;
     color: inherit;
     opacity: 0.7;
+    box-shadow: none;
   }
 
   .toast-x:hover {
@@ -326,8 +550,8 @@
   .workspace {
     display: flex;
     gap: 0.6rem;
-    flex: 1;
-    min-height: 0;
+    flex: 0 0 auto;
+    align-items: flex-start;
   }
 
   .roster-column {
@@ -335,16 +559,30 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    min-height: 0;
   }
 
   .roster-head {
     display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    padding: 0.45rem 0.75rem;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.5rem 0.75rem;
     border-radius: var(--radius-md) var(--radius-md) 0 0;
     border-bottom: none;
+    background: linear-gradient(180deg, #2a241e 0%, var(--bg-panel) 100%);
+    box-shadow: inset 0 1px 0 rgba(184, 149, 74, 0.1);
+  }
+
+  .roster-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .roster-enable-all {
+    padding: 0.3rem 0.65rem;
+    font-size: 0.62rem;
+    flex-shrink: 0;
   }
 
   .roster-head h2 {
@@ -365,7 +603,7 @@
 
   .list-head {
     display: grid;
-    grid-template-columns: 2.25rem 1fr 3.5rem auto auto 1.25rem 2.5rem;
+    grid-template-columns: var(--roster-grid-columns);
     gap: 0 0.6rem;
     padding: 0.35rem 0.75rem;
     font-family: var(--font-display);
@@ -380,20 +618,45 @@
   }
 
   .list-body {
-    flex: 1;
+    height: calc(var(--mod-row-height) * var(--mod-visible-rows));
+    flex: 0 0 auto;
     overflow-y: auto;
-    min-height: 0;
     border-radius: 0 0 var(--radius-md) var(--radius-md);
     border-top: 1px solid var(--border-subtle);
   }
 
+  .virtual-spacer {
+    position: relative;
+    width: 100%;
+  }
+
+  .virtual-window {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+  }
+
   .list-empty {
     margin: 0;
-    padding: 2rem 1rem;
+    padding: 2.5rem 1rem;
     text-align: center;
     color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .list-empty p {
+    margin: 0;
     font-size: 0.85rem;
     font-style: italic;
+  }
+
+  .empty-mark {
+    font-size: 1.25rem;
+    opacity: 0.45;
   }
 
   .welcome {
@@ -403,29 +666,64 @@
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 2.5rem 2rem;
-    max-width: 420px;
+    padding: 2.75rem 2.25rem;
+    max-width: 440px;
     margin: auto;
-    gap: 0.35rem;
+    gap: 0.5rem;
   }
 
   .welcome h2 {
-    margin: 1rem 0 0.5rem;
+    margin: 0.25rem 0 0.5rem;
     font-family: var(--font-display);
-    font-size: 1.25rem;
+    font-size: 1.35rem;
     font-weight: 700;
     color: var(--gold-light);
     letter-spacing: 0.04em;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
   }
 
   .welcome p {
-    margin: 0 0 1.25rem;
+    margin: 0 0 1rem;
     font-size: 0.85rem;
     color: var(--text-secondary);
     line-height: 1.55;
+    max-width: 34ch;
+  }
+
+  .welcome-features {
+    list-style: none;
+    margin: 0 0 1.35rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    width: 100%;
+    max-width: 280px;
+  }
+
+  .welcome-features li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.65rem;
+    font-size: 0.78rem;
+    color: var(--parchment-dim);
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+
+  .feat-icon {
+    flex-shrink: 0;
+    width: 1.35rem;
+    text-align: center;
+    color: var(--gold);
+    font-size: 0.85rem;
   }
 
   .welcome-cta {
-    padding: 0.6rem 1.75rem;
+    padding: 0.65rem 2rem;
+    min-width: 11rem;
   }
 </style>
