@@ -49,16 +49,13 @@
   const totalCount = $derived(modules.length);
 
   const enabledWaypoints = $derived.by(() => {
-    const waypoints: { id: string; name: string }[] = [];
-    for (const module of modules) {
-      if (module.enabled) {
-        waypoints.push({
-          id: module.module.info.id,
-          name: module.module.info.name,
-        });
-      }
-    }
-    return waypoints;
+    return [...modules]
+      .filter((module) => module.enabled)
+      .sort((a, b) => a.position - b.position)
+      .map((module) => ({
+        id: module.module.info.id,
+        name: module.module.info.name,
+      }));
   });
 
   const useVirtualList = $derived(
@@ -154,7 +151,16 @@
     cancelStatusDismiss();
     try {
       appState = await invoke<AppState>("refresh_modules");
-      showStatus("Modules refreshed");
+      const workshopCount = appState.modules.filter(
+        (m) => m.module.source === "workshop",
+      ).length;
+      const suffix =
+        appState.warnings.length > 0
+          ? ` (${appState.warnings.length} warning(s))`
+          : "";
+      showStatus(
+        `Found ${appState.modules.length} modules (${workshopCount} workshop)${suffix}`,
+      );
     } catch (e) {
       showError(String(e));
     } finally {
@@ -196,7 +202,13 @@
     cancelStatusDismiss();
     try {
       appState = await invoke<AppState>("auto_sort_modules");
-      showStatus("Load order sorted");
+      if (appState.warnings.length > 0) {
+        showStatus(
+          `Sorted with ${appState.warnings.length} dependency warning(s) — check Battle Orders`,
+        );
+      } else {
+        showStatus("Load order sorted — save before launching");
+      }
     } catch (e) {
       showError(String(e));
     } finally {
@@ -226,7 +238,7 @@
     cancelStatusDismiss();
     try {
       await invoke("launch_game");
-      showStatus("Saved load order and launching Bannerlord via Steam…");
+      showStatus("Launching Bannerlord directly (Shift+Tab for Steam overlay)…");
     } catch (e) {
       showError(String(e));
     } finally {

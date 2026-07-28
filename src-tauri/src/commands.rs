@@ -1,6 +1,6 @@
 use crate::AppContext;
 use mb2_core::{
-    auto_sort, default_cache_path, launch_via_steam, load_app_state,
+    auto_sort, default_cache_path, launch_bannerlord, load_app_state,
     save_load_order as persist_load_order, unblock_module_dlls, GamePaths, LoadOrderEntry,
     MetadataCache,
 };
@@ -35,14 +35,19 @@ pub fn set_game_path(
 
 #[tauri::command]
 pub fn refresh_modules(ctx: State<'_, AppContext>) -> Result<mb2_core::AppState, String> {
-    let paths = ctx
+    let mut paths = ctx
         .paths
         .lock()
         .unwrap()
         .clone()
         .ok_or_else(|| "Game not configured. Detect or set game path first.".to_string())?;
 
+    paths
+        .refresh_discovered_paths()
+        .map_err(|e| e.to_string())?;
+
     let state = load_app_state(&paths).map_err(|e| e.to_string())?;
+    *ctx.paths.lock().unwrap() = Some(paths);
     *ctx.state.lock().unwrap() = Some(state.clone());
     Ok(state)
 }
@@ -171,8 +176,10 @@ pub fn save_load_order(ctx: State<'_, AppContext>) -> Result<(), String> {
         .clone()
         .ok_or_else(|| "No module state loaded.".to_string())?;
 
-    let entries: Vec<LoadOrderEntry> = state
-        .modules
+    let mut modules = state.modules;
+    modules.sort_by_key(|module| module.position);
+
+    let entries: Vec<LoadOrderEntry> = modules
         .iter()
         .map(|m| LoadOrderEntry {
             module_id: m.module.info.id.clone(),
@@ -218,8 +225,10 @@ pub fn launch_game(ctx: State<'_, AppContext>) -> Result<(), String> {
         .clone()
         .ok_or_else(|| "No module state loaded.".to_string())?;
 
-    let entries: Vec<LoadOrderEntry> = state
-        .modules
+    let mut modules = state.modules;
+    modules.sort_by_key(|module| module.position);
+
+    let entries: Vec<LoadOrderEntry> = modules
         .iter()
         .map(|m| LoadOrderEntry {
             module_id: m.module.info.id.clone(),
@@ -228,7 +237,7 @@ pub fn launch_game(ctx: State<'_, AppContext>) -> Result<(), String> {
         .collect();
 
     persist_load_order(&paths, &entries).map_err(|e| e.to_string())?;
-    launch_via_steam().map_err(|e| e.to_string())
+    launch_bannerlord(&paths, &entries).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

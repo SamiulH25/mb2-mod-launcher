@@ -12,14 +12,16 @@ pub use cache::{CachedModMetadata, MetadataCache};
 pub use dll::{unblock_module_dlls, UnblockResult};
 pub use error::{Mb2Error, Result};
 pub use launcher_data::{read_launcher_data, write_launcher_data, LauncherData};
-pub use launch::launch_via_steam;
-pub use load_order::{auto_sort, is_official_module, LoadOrderEntry, SortResult};
+pub use launch::{build_module_launch_args, launch_bannerlord};
+pub use load_order::{
+    auto_sort, is_framework_module, is_official_module, LoadOrderEntry, SortResult,
+};
 pub use paths::GamePaths;
-pub use scanner::{scan_modules, InstalledModule, ModuleSource};
+pub use scanner::{scan_modules, scan_modules_with_report, InstalledModule, ModuleSource, ScanReport};
 pub use submodule::SubModuleInfo;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +70,7 @@ impl From<GamePaths> for GamePathsSnapshot {
 }
 
 pub fn load_app_state(paths: &GamePaths) -> Result<AppState> {
-    let installed = scan_modules(paths)?;
+    let (installed, scan_report) = scan_modules_with_report(paths)?;
     let launcher = read_launcher_data(&paths.launcher_data)?;
 
     let launcher_map: HashMap<String, bool> = launcher
@@ -83,6 +85,23 @@ pub fn load_app_state(paths: &GamePaths) -> Result<AppState> {
         .enumerate()
         .map(|(i, e)| (e.module_id.clone(), i))
         .collect();
+
+    let installed_ids: HashSet<String> = installed.iter().map(|m| m.info.id.clone()).collect();
+    let mut warnings = scan_report.warnings;
+    for entry in &launcher.singleplayer {
+        if !installed_ids.contains(&entry.module_id) {
+            warnings.push(format!(
+                "Saved load order references \"{}\" but it was not found in game or workshop folders",
+                entry.module_id
+            ));
+        }
+    }
+    if !scan_report.parse_failures.is_empty() {
+        warnings.push(format!(
+            "{} mod folder(s) could not be parsed (see logs for details)",
+            scan_report.parse_failures.len()
+        ));
+    }
 
     let mut modules: Vec<ModuleState> = installed
         .into_iter()
@@ -108,7 +127,7 @@ pub fn load_app_state(paths: &GamePaths) -> Result<AppState> {
     Ok(AppState {
         paths: paths.clone().into(),
         modules,
-        warnings: Vec::new(),
+        warnings,
     })
 }
 
@@ -120,7 +139,6 @@ pub fn save_load_order(paths: &GamePaths, entries: &[LoadOrderEntry]) -> Result<
     };
     write_launcher_data(&paths.launcher_data, &data)
 }
-
 pub fn default_config_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))

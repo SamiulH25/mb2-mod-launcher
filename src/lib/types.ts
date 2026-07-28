@@ -28,6 +28,7 @@ export interface InstalledModule {
   info: SubModuleInfo;
   path: string;
   source: "game" | "workshop" | "manual";
+  workshop_item_id?: string | null;
 }
 
 export interface ModuleState {

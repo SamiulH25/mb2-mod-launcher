@@ -39,7 +39,7 @@
             title={waypoint.id}
           >
             <span class="marker">{i + 1}</span>
-            <span class="label">{waypoint.name}</span>
+            <span class="label" title={waypoint.id}>{waypoint.name}</span>
           </div>
           {#if i < visible.length - 1 || overflow > 0}
             <span class="trail" aria-hidden="true"></span>
